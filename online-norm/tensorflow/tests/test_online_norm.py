@@ -227,117 +227,117 @@ class TestOnlineNorm(unittest.TestCase):
             itrs=itrs,
         )
 
-    # def test0411_1d_numerical_comparison_on_fprop_vs_np_batchsize1_mp(
-    #     self,
-    #     batch_size=1,
-    #     num_features=16,
-    #     alpha_fwd=0.99,
-    #     alpha_bkw=0.99,
-    #     itrs=16,
-    # ):
-    #     """
-    #     Test ON Layer's fprop against numpy implementation for 1d inputs at batch size 1
-    #     """
-    #     # create inputs
-    #     np_inputs = np.random.randn(batch_size, num_features) + .25
+    def test0411_1d_numerical_comparison_on_fprop_vs_np_batchsize1_mp(
+        self,
+        batch_size=1,
+        num_features=16,
+        alpha_fwd=0.99,
+        alpha_bkw=0.99,
+        itrs=16,
+    ):
+        """
+        Test ON Layer's fprop against numpy implementation for 1d inputs at batch size 1
+        """
+        # create inputs
+        np_inputs = np.random.randn(batch_size, num_features) + .25
 
-    #     tf.keras.backend.set_floatx('float16')
+        tf.keras.backend.set_floatx('float16')
 
-    #     self.template_numerical_comparison_on_vs_np(
-    #         np_inputs,
-    #         np_grad_out=None,
-    #         axis=1,
-    #         alpha_fwd=alpha_fwd,
-    #         alpha_bkw=alpha_bkw,
-    #         itrs=itrs,
-    #         dtype=Policy('infer_float32_vars'),
-    #     )
+        self.template_numerical_comparison_on_vs_np(
+            np_inputs,
+            np_grad_out=None,
+            axis=1,
+            alpha_fwd=alpha_fwd,
+            alpha_bkw=alpha_bkw,
+            itrs=itrs,
+            dtype=Policy('infer_float32_vars'),
+        )
 
-    # def test0421_2d_numerical_comparison_on_fprop_vs_np_batchsize1_mp(
-    #     self,
-    #     batch_size=1,
-    #     num_features=16,
-    #     height=45,
-    #     width=64,
-    #     alpha_fwd=0.99,
-    #     alpha_bkw=0.99,
-    #     itrs=16,
-    # ):
-    #     """
-    #     Test ON Layer's fprop against numpy implementation for 2d inputs at batch size 1
-    #     """
-    #     # create inputs
-    #     np_inputs = np.random.randn(batch_size, num_features, height, width) + .25
+    def test0421_2d_numerical_comparison_on_fprop_vs_np_batchsize1_mp(
+        self,
+        batch_size=1,
+        num_features=16,
+        height=45,
+        width=64,
+        alpha_fwd=0.99,
+        alpha_bkw=0.99,
+        itrs=16,
+    ):
+        """
+        Test ON Layer's fprop against numpy implementation for 2d inputs at batch size 1
+        """
+        # create inputs
+        np_inputs = np.random.randn(batch_size, num_features, height, width) + .25
 
-    #     tf.keras.backend.set_floatx('float16')
+        tf.keras.backend.set_floatx('float16')
 
-    #     self.template_numerical_comparison_on_vs_np(
-    #         np_inputs,
-    #         np_grad_out=None,
-    #         axis=1,
-    #         alpha_fwd=alpha_fwd,
-    #         alpha_bkw=alpha_bkw,
-    #         itrs=itrs,
-    #         dtype=Policy('infer_float32_vars'),
-    #     )
+        self.template_numerical_comparison_on_vs_np(
+            np_inputs,
+            np_grad_out=None,
+            axis=1,
+            alpha_fwd=alpha_fwd,
+            alpha_bkw=alpha_bkw,
+            itrs=itrs,
+            dtype=Policy('infer_float32_vars'),
+        )
 
-    # def test0511_1d_numerical_comparison_on_vs_np_batchsize1_mp(
-    #     self,
-    #     batch_size=1,
-    #     num_features=16,
-    #     alpha_fwd=0.99,
-    #     alpha_bkw=0.99,
-    #     itrs=16,
-    # ):
-    #     """
-    #     Test ON Layer against numpy implementation for 1d inputs at batch size 1
-    #     """
-    #     # create inputs
-    #     np_inputs = np.random.randn(batch_size, num_features) + .25
-    #     # instantiate gradient at the output
-    #     np_grad_out = np.random.randn(batch_size, num_features) + .125
+    def test0511_1d_numerical_comparison_on_vs_np_batchsize1_mp(
+        self,
+        batch_size=1,
+        num_features=16,
+        alpha_fwd=0.99,
+        alpha_bkw=0.99,
+        itrs=16,
+    ):
+        """
+        Test ON Layer against numpy implementation for 1d inputs at batch size 1
+        """
+        # create inputs
+        np_inputs = np.random.randn(batch_size, num_features) + .25
+        # instantiate gradient at the output
+        np_grad_out = np.random.randn(batch_size, num_features) + .125
 
-    #     tf.keras.backend.set_floatx('float16')
+        tf.keras.backend.set_floatx('float16')
 
-    #     self.template_numerical_comparison_on_vs_np(
-    #         np_inputs,
-    #         np_grad_out=np_grad_out,
-    #         axis=1,
-    #         alpha_fwd=alpha_fwd,
-    #         alpha_bkw=alpha_bkw,
-    #         itrs=itrs,
-    #         dtype=Policy('infer_float32_vars'),
-    #     )
+        self.template_numerical_comparison_on_vs_np(
+            np_inputs,
+            np_grad_out=np_grad_out,
+            axis=1,
+            alpha_fwd=alpha_fwd,
+            alpha_bkw=alpha_bkw,
+            itrs=itrs,
+            dtype=Policy('infer_float32_vars'),
+        )
 
-    # def test0521_2d_numerical_comparison_on_vs_np_batchsize1_mp(
-    #     self,
-    #     batch_size=1,
-    #     num_features=16,
-    #     height=45,
-    #     width=64,
-    #     alpha_fwd=0.99,
-    #     alpha_bkw=0.99,
-    #     itrs=16,
-    # ):
-    #     """
-    #     Test ON Layer against numpy implementation for 2d inputs at batch size 1
-    #     """
-    #     # create inputs
-    #     np_inputs = np.random.randn(batch_size, num_features, height, width) + .25
-    #     # instantiate gradient at the output
-    #     np_grad_out = np.random.randn(batch_size, num_features, height, width) + .125
+    def test0521_2d_numerical_comparison_on_vs_np_batchsize1_mp(
+        self,
+        batch_size=1,
+        num_features=16,
+        height=45,
+        width=64,
+        alpha_fwd=0.99,
+        alpha_bkw=0.99,
+        itrs=16,
+    ):
+        """
+        Test ON Layer against numpy implementation for 2d inputs at batch size 1
+        """
+        # create inputs
+        np_inputs = np.random.randn(batch_size, num_features, height, width) + .25
+        # instantiate gradient at the output
+        np_grad_out = np.random.randn(batch_size, num_features, height, width) + .125
 
-    #     tf.keras.backend.set_floatx('float16')
+        tf.keras.backend.set_floatx('float16')
 
-    #     self.template_numerical_comparison_on_vs_np(
-    #         np_inputs,
-    #         np_grad_out=np_grad_out,
-    #         axis=1,
-    #         alpha_fwd=alpha_fwd,
-    #         alpha_bkw=alpha_bkw,
-    #         itrs=itrs,
-    #         dtype=Policy('infer_float32_vars'),
-    #     )
+        self.template_numerical_comparison_on_vs_np(
+            np_inputs,
+            np_grad_out=np_grad_out,
+            axis=1,
+            alpha_fwd=alpha_fwd,
+            alpha_bkw=alpha_bkw,
+            itrs=itrs,
+            dtype=Policy('infer_float32_vars'),
+        )
 
 
 if __name__ == '__main__':

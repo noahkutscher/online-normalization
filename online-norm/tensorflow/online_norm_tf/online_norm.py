@@ -242,7 +242,7 @@ class Norm(Layer):
             update_var = tf.assign(self.var, new_var, validate_shape=True)
 
             with tf.control_dependencies([update_mu, update_var]):
-                netout = tf.identity(output)
+                output = tf.identity(output)
 
                 def backward(delta):
                     """
@@ -259,7 +259,8 @@ class Norm(Layer):
                         # control with v
                         delta_temp = delta
                         delta_temp -= tf.reshape(
-                            self.v_ctrl, self.broadcast_shape
+                            tf.cast(self.v_ctrl, self.mp_type),
+                            self.broadcast_shape
                         ) * output * (1 - alpha_bkw)
 
                         # update v control variables
@@ -267,15 +268,14 @@ class Norm(Layer):
                         # orthogonality to normalizer output
                         update_v = tf.assign_add(
                             self.v_ctrl,
-                            tf.cast(
-                                tf.reduce_mean(
-                                    tf.cast(delta_temp * output, self.fp_type),
-                                    axis=self.norm_ax,
-                                    keepdims=False
-                                ),
-                                self.mp_type,
+                            tf.reduce_mean(
+                                tf.cast(delta_temp, self.fp_type) * tf.cast(output, self.fp_type),
+                                axis=self.norm_ax,
+                                keepdims=False
                             )
                         )
+
+                    with tf.control_dependencies([delta_temp, update_v]):
                         # scale deltas
                         delta_temp_scaled = (
                             delta_temp /
@@ -285,7 +285,7 @@ class Norm(Layer):
                         # control with u
                         grad_delta = (
                             delta_temp_scaled -
-                            (1 - alpha_bkw) * tf.reshape(self.u_ctrl,
+                            (1 - alpha_bkw) * tf.reshape(tf.cast(self.u_ctrl, self.mp_type),
                                                          self.broadcast_shape)
                         )
 
@@ -294,23 +294,21 @@ class Norm(Layer):
                         # orthogonality to the 1 vector
                         update_u = tf.assign_add(
                             self.u_ctrl,
-                            tf.cast(
-                                tf.reduce_mean(
-                                    tf.cast(grad_delta, self.fp_type),
-                                    axis=self.norm_ax,
-                                    keepdims=False
-                                ),
-                                self.mp_type,
+                            tf.reduce_mean(
+                                tf.cast(grad_delta, self.fp_type),
+                                axis=self.norm_ax,
+                                keepdims=False
                             )
                         )
 
-                    with tf.control_dependencies([update_u, update_v,
-                                                  grad_delta]):
+                    with tf.control_dependencies(
+                        [update_u, update_v, grad_delta]
+                    ):
                         grad_delta = tf.identity(grad_delta)
                         return grad_delta
 
                 # choose back prop algorithm (single or dual stage)
-                return netout, backward
+                return output, backward
 
         return forward(inputs)
 
