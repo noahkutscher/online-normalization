@@ -134,9 +134,8 @@ class Norm(Layer):
                 stat_shape.append(ax)
                 self.broadcast_shape.append(ax)
             else:
-                if idx:
-                    self.norm_ax += [idx - 1]
-                    self.broadcast_shape.append(1)
+                self.norm_ax += [idx]
+                self.broadcast_shape.append(1)
 
         # streaming normalization statistics
         self.mu = self.add_variable(
@@ -215,87 +214,103 @@ class Norm(Layer):
         def forward(inputs):
             """
             Function for forward pass.
-
             Arguments:
                 inputs: activations of the current batch
-
             Returns:
                 netout: normalized activations
                 backward_wrapper: function handle for custom backward pass
             """
-            input_shape = inputs.shape
-            inputs = tf.reshape(inputs, [input_shape[0], input_shape[1], -1])
-            mu, var = tf.nn.moments(
-                tf.cast(inputs, self.fp_type),
-                2,
-                keep_dims=False
-            )
-            mean, scale, out_s_mu, out_s_var = online_norm_fwd(
-                mu=mu,
-                var=var,
-                in_s_mu=self.mu,
-                in_s_var=self.var,
-                afwd=self.alpha_fwd,
-                eps=self.epsilon,
-                T=self.mp_type
-            )
-            update_mu = tf.assign(self.mu, out_s_mu, validate_shape=True)
-            update_var = tf.assign(self.var ,out_s_var, validate_shape=True)
-            with tf.control_dependencies([update_mu, update_var]):
-                mean = tf.broadcast_to(tf.expand_dims(mean, -1), inputs.shape)
-                scale = tf.expand_dims(scale, -1)
-                scale = tf.broadcast_to(scale, inputs.shape)
-                outputs = ((inputs - mean) / scale)
-                out = tf.reshape(outputs, input_shape)
+            alpha = self.alpha_fwd
 
-            def backward(deltas):
-                """
-                Wrapper for the custom backwards pass using ctrl process
-                Note: deltas depends on fprop output
+            scale = tf.cast(tf.sqrt(self.var + self.epsilon), self.mp_type)
+            mean = tf.reshape(tf.cast(self.mu, self.mp_type),
+                              self.broadcast_shape)
+            output = (inputs - mean) / tf.reshape(scale, self.broadcast_shape)
 
-                Arguments:
-                    deltas: input deltas from the current batch
+            # compute batch statistics
+            mu_bn, var_bn = tf.nn.moments(tf.cast(inputs, self.fp_type),
+                                          self.norm_ax, keep_dims=False)
 
-                Returns
-                    grad_delta: output deltas for inputs
-                """
-                deltas_shape = deltas.shape
-                deltas = tf.reshape(
-                    deltas,
-                    [deltas_shape[0], deltas_shape[1], -1]
-                )
-                alpha_bkw = self.alpha_bkw
-                out_v, grad_tmp = online_norm_v_ctrl(
-                    grad_out=deltas,
-                    out=outputs,
-                    in_v=self.v_ctrl,
-                    abkw=alpha_bkw,
-                )
+            with tf.control_dependencies([output, scale]):
+                # get the new mean and variances
+                new_mu = self.mu + (1 - alpha) * (mu_bn - self.mu)
+                new_var = (alpha * self.var + (1 - alpha) * var_bn +
+                           (alpha * (1 - alpha) * tf.square(mu_bn - self.mu)))
 
-                grad_tmp = grad_tmp / scale
-                mu_delta = tf.reduce_mean(tf.cast(grad_tmp, tf.float32), 2)
-                out_u, d_u = online_norm_u_ctrl(
-                    mu_delta=mu_delta,
-                    in_u=self.u_ctrl,
-                    abkw=alpha_bkw,
-                    T=self.mp_type
-                )
-                d_u = tf.expand_dims(d_u, -1)
-                d_u = tf.broadcast_to(d_u, deltas.shape)
-                grad_in = grad_tmp - d_u
-                grad_in = tf.reshape(grad_in, deltas_shape)
-
-                update_v = tf.assign(self.v_ctrl, out_v)
-                update_u = tf.assign(self.u_ctrl, out_u)
-
-                with tf.control_dependencies(
-                    [update_u, update_v, update_mu, update_var]
-                ):
-                    grad_in = tf.identity(grad_in)
-                    return grad_in
+            # update the mean and variance
+            update_mu = tf.assign(self.mu, new_mu, validate_shape=True)
+            update_var = tf.assign(self.var, new_var, validate_shape=True)
 
             with tf.control_dependencies([update_mu, update_var]):
-                return out, backward
+                netout = tf.identity(output)
+
+                def backward(delta):
+                    """
+                    Wrapper for the custom backwards pass using ctrl process
+                    Note: deltas depends on fprop output
+                    Arguments:
+                        deltas: input deltas from the current batch
+                    Returns
+                        grad_delta: output deltas for inputs
+                    """
+
+                    alpha_bkw = self.alpha_bkw
+                    with tf.control_dependencies([delta, output, scale]):
+                        # control with v
+                        delta_temp = delta
+                        delta_temp -= tf.reshape(
+                            self.v_ctrl, self.broadcast_shape
+                        ) * output * (1 - alpha_bkw)
+
+                        # update v control variables
+                        # update the estimate of v controller, controlling
+                        # orthogonality to normalizer output
+                        update_v = tf.assign_add(
+                            self.v_ctrl,
+                            tf.cast(
+                                tf.reduce_mean(
+                                    tf.cast(delta_temp * output, self.fp_type),
+                                    axis=self.norm_ax,
+                                    keepdims=False
+                                ),
+                                self.mp_type,
+                            )
+                        )
+                        # scale deltas
+                        delta_temp_scaled = (
+                            delta_temp /
+                            tf.reshape(scale, self.broadcast_shape)
+                        )
+
+                        # control with u
+                        grad_delta = (
+                            delta_temp_scaled -
+                            (1 - alpha_bkw) * tf.reshape(self.u_ctrl,
+                                                         self.broadcast_shape)
+                        )
+
+                        # update u control variables
+                        # update the estimate u controller which controls
+                        # orthogonality to the 1 vector
+                        update_u = tf.assign_add(
+                            self.u_ctrl,
+                            tf.cast(
+                                tf.reduce_mean(
+                                    tf.cast(grad_delta, self.fp_type),
+                                    axis=self.norm_ax,
+                                    keepdims=False
+                                ),
+                                self.mp_type,
+                            )
+                        )
+
+                    with tf.control_dependencies([update_u, update_v,
+                                                  grad_delta]):
+                        grad_delta = tf.identity(grad_delta)
+                        return grad_delta
+
+                # choose back prop algorithm (single or dual stage)
+                return netout, backward
 
         return forward(inputs)
 
