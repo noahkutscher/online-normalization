@@ -323,3 +323,169 @@ std::vector<at::Tensor> norm_bwd_cuda(
 
   return {grad_in, u, v};
 }
+
+
+template <typename T>
+__global__ void layer_scaling_fwd_kernel(
+    const T* __restrict__ input,
+    T* __restrict__ out,
+    T* __restrict__ scale,
+    const unsigned int N,
+    const unsigned int K,
+    const float eps) {
+
+  const unsigned int t_id = threadIdx.x;
+  const unsigned int n = blockIdx.x;
+  const unsigned int k = blockDim.x;
+  unsigned int idx;
+
+  extern __shared__ float s_mem[];
+  s_mem[t_id] = 0;                                // reset shared mem
+
+  float in_elem, mom2sq, mom2;
+
+  __syncthreads();
+
+  for (idx = t_id; idx < K; idx += k) {
+    in_elem = (float)input[Idx2(n, idx, N, K)];   // get input element
+    s_mem[t_id] += in_elem * in_elem;             // start reductions
+  }
+  __syncthreads();
+
+  // reduce within thread block % warp reduction
+  for (idx = 512; idx > 32; idx /= 2) {
+    if (k > idx) {
+      if ((t_id < idx) && ((t_id + idx) < k)) {
+        s_mem[t_id] += s_mem[t_id + idx];         // reduction
+      }
+      __syncthreads();
+    }
+  }
+
+  // reduce smem within warp
+  if (t_id < 32) {
+    warp_reduce(s_mem, t_id, k);                  // reduction
+  }
+
+  if (t_id == 0) {
+    // compute sample std dev
+    mom2sq = s_mem[0] / K;
+    mom2 = sqrt(mom2sq + eps);
+
+    scale[n] = (T)mom2;
+
+  }
+  __syncthreads();
+
+  // compute output
+  for (idx = t_id; idx < K; idx += k) {
+    out[Idx2(n, idx, N, K)] = (float)input[Idx2(n, idx, N, K)] / mom2;
+  }
+}
+
+std::vector<at::Tensor> layer_scaling_fwd_cuda(
+    const at::Tensor input,
+    const float eps) {
+  CHECK_INPUT(input);
+
+  // Assumes channel_first contiguous data
+
+  const unsigned int N = input.size(0);
+  const unsigned int K = input[0].numel();
+
+  auto scale = at::empty({N}, input.type());
+  auto out = at::empty_like(input);
+  
+  const unsigned int threads = min(int(K), 512);
+  const dim3 blocks(N);
+
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(input.scalar_type(), "layer_scaling_fwd", ([&] {
+    layer_scaling_fwd_kernel<scalar_t><<<blocks, threads, threads * sizeof(float)>>>(
+        input.data<scalar_t>(),
+        scale.data<scalar_t>(),
+        out.data<scalar_t>(),
+        N, K, eps);
+  }));
+  THCudaCheck(cudaGetLastError());
+
+  return {out, scale};
+}
+
+template <typename T>
+__global__ void layer_scaling_bwd_kernel(
+    const T* __restrict__ grad_out,
+    const T* __restrict__ out,
+    const T* __restrict__ scale,
+    T* __restrict__ grad_in,
+    const unsigned int N,
+    const unsigned int K) {
+
+  const unsigned int t_id = threadIdx.x;
+  const unsigned int n = blockIdx.x;
+  const unsigned int k = blockDim.x;
+  unsigned int idx;
+
+  extern __shared__ float s_mem[];
+  s_mem[t_id] = 0;                                // reset shared mem
+
+  __syncthreads();
+
+  for (idx = t_id; idx < K; idx += k) {
+    s_mem[t_id] += (float)grad_out[Idx2(n, idx, N, K)] * (float)out[Idx2(n, idx, N, K)];  // start reductions
+  }
+  __syncthreads();
+
+  // reduce within thread block % warp reduction
+  for (idx = 512; idx > 32; idx /= 2) {
+    if (k > idx) {
+      if ((t_id < idx) && ((t_id + idx) < k)) {
+        s_mem[t_id] += s_mem[t_id + idx];
+      }
+      __syncthreads();
+    }
+  }
+  __syncthreads();
+
+  // reduce smem within warp
+  if (t_id < 32) {
+    warp_reduce(s_mem, t_id, k);
+  }
+  __syncthreads();
+
+  // compute output
+  for (idx = t_id; idx < K; idx += k) {
+    grad_in[Idx2(n, idx, N, K)] = ((float)grad_out[Idx2(n, idx, N, K)] - s_mem[0] * (float)out[Idx2(n, idx, N, K)]) / scale[n];
+  }
+  __syncthreads();
+}
+
+std::vector<at::Tensor> layer_scaling_bwd_cuda(
+    const at::Tensor grad_out,
+    const at::Tensor out,
+    const at::Tensor scale) {
+  CHECK_INPUT(grad_out);
+  CHECK_INPUT(out);
+  CHECK_INPUT(scale);
+
+  // Assumes channel_first contiguous data
+
+  const unsigned int N = grad_out.size(0);
+  const unsigned int K = grad_out[0].numel();
+
+  auto grad_in = at::empty_like(grad_out);
+
+  const unsigned int threads = min(int(K), 512);
+  const dim3 blocks(N);
+
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(grad_out.scalar_type(), "layer_scaling_bwd", ([&] {
+    layer_scaling_bwd_kernel<scalar_t><<<blocks, threads, threads * sizeof(float)>>>(
+        grad_out.data<scalar_t>(),
+        out.data<scalar_t>(),
+        scale.data<scalar_t>(),
+        grad_in.data<scalar_t>(),
+        N, K);
+  }));
+  THCudaCheck(cudaGetLastError());
+
+  return {grad_in, };
+}

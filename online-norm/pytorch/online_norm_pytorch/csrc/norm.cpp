@@ -14,4 +14,6 @@
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("norm_fwd", &norm_fwd, "norm_fwd");
   m.def("norm_bwd", &norm_bwd, "norm_bwd");
+  m.def("layer_scaling_fwd", &layer_scaling_fwd, "layer_scaling_fwd");
+  m.def("layer_scaling_bwd", &layer_scaling_bwd, "layer_scaling_bwd");
 }

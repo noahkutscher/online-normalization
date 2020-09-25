@@ -29,6 +29,15 @@ std::vector<at::Tensor> norm_bwd_cpu(
     const at::Tensor scale,
     const float abwd);
 
+std::vector<at::Tensor> layer_scaling_fwd_cpu(
+    const at::Tensor input,
+    const float eps);
+
+std::vector<at::Tensor> layer_scaling_bwd_cpu(
+    const at::Tensor grad_out,
+    const at::Tensor out,
+    const at::Tensor scale);
+
 #ifdef WITH_CUDA
 std::vector<at::Tensor> norm_fwd_cuda(
     const at::Tensor input,
@@ -44,6 +53,16 @@ std::vector<at::Tensor> norm_bwd_cuda(
     const at::Tensor out,
     const at::Tensor scale,
     const float abwd);
+
+std::vector<at::Tensor> layer_scaling_fwd_cuda(
+    const at::Tensor input,
+    const float eps);
+
+std::vector<at::Tensor> layer_scaling_bwd_cuda(
+    const at::Tensor grad_out,
+    const at::Tensor out,
+    const at::Tensor scale);
+
 #endif
 
 // Interface for Python
@@ -100,4 +119,41 @@ inline std::vector<at::Tensor> norm_bwd(
       out,
       scale,
       abwd);
+}
+
+inline std::vector<at::Tensor> layer_scaling_fwd(
+    const at::Tensor& input,
+    const float eps) {
+  if (input.type().is_cuda()) {
+#ifdef WITH_CUDA
+    return layer_scaling_fwd_cuda(
+        input,
+        eps);
+#else
+    AT_ERROR("Not compiled with GPU support");
+#endif
+  }
+  return layer_scaling_fwd_cpu(
+      input,
+      eps);
+}
+
+inline std::vector<at::Tensor> layer_scaling_bwd(
+    const at::Tensor& grad_out,
+    const at::Tensor& out,
+    const at::Tensor& scale) {
+  if (grad_out.type().is_cuda()) {
+#ifdef WITH_CUDA
+    return layer_scaling_bwd_cuda(
+        grad_out,
+        out,
+        scale);
+#else
+    AT_ERROR("Not compiled with GPU support");
+#endif
+  }
+  return layer_scaling_bwd_cpu(
+      grad_out,
+      out,
+      scale);
 }

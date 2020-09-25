@@ -87,3 +87,36 @@ std::vector<at::Tensor> norm_bwd_cpu(
 
   return {grad_in.view(input_shape), u, v};
 }
+
+// layer scaling
+std::vector<at::Tensor> layer_scaling_fwd_cpu(
+    const at::Tensor input,
+    const float eps) {
+  CHECK_INPUT(input);
+
+  const auto input_shape = input.sizes();
+  const auto inputs = input.view({input_shape[0], -1});
+
+  const auto scale = (inputs.pow(2).mean({1}) + eps).sqrt();
+
+  return {
+    (inputs.toType(input.scalar_type()) / scale.unsqueeze(1)).view(input_shape),
+    scale
+  };
+}
+
+std::vector<at::Tensor> layer_scaling_bwd_cpu(
+    const at::Tensor grad_out,
+    const at::Tensor out,
+    const at::Tensor scale) {
+  CHECK_INPUT(grad_out);
+  CHECK_INPUT(out);
+  CHECK_INPUT(scale);
+  const auto input_shape = grad_out.sizes();
+  const auto grad_outputs = grad_out.view({input_shape[0], -1});
+  const auto outputs = out.view({input_shape[0], -1});
+
+  auto grad_in = ((grad_outputs - ((grad_outputs * outputs).mean({1}).unsqueeze(1) * outputs)) / scale.unsqueeze(1)).view(input_shape);
+
+  return {grad_in.view(input_shape), };
+}
