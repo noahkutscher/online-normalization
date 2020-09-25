@@ -40,14 +40,14 @@ class LayerScalingK(nn.Module):
 
 
 def main():
-    ls = LayerScalingK(1e-32)
-    x = torch.randn(2, 3, 4, 5) + .2623
+    ls = LayerScalingK(1e-32).cuda()
+    x = torch.randn(2, 3, 4, 5).cuda() + .2623
     x.requires_grad = True
-    x_sanity = x.clone().detach()
+    x_sanity = x.clone().detach().cuda()
     x_sanity.requires_grad = True
-    dy = torch.randn(2, 3, 4, 5)
+    dy = torch.randn(2, 3, 4, 5).cuda()
     y = ls(x)
-    y.backward(dy)
+    y.backward(dy, retain_graph=True)
 
     y_sanity = x_sanity / ((x_sanity * x_sanity).mean((1, 2, 3), keepdim=True) + 1e-32).sqrt()
     y_sanity.backward(dy)

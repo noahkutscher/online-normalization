@@ -337,12 +337,12 @@ __global__ void layer_scaling_fwd_kernel(
   const unsigned int t_id = threadIdx.x;
   const unsigned int n = blockIdx.x;
   const unsigned int k = blockDim.x;
-  unsigned int idx;
+  unsigned int idx, idx2;
 
   extern __shared__ float s_mem[];
   s_mem[t_id] = 0;                                // reset shared mem
 
-  float in_elem, mom2sq, mom2;
+  float in_elem, mom2;
 
   __syncthreads();
 
@@ -369,18 +369,17 @@ __global__ void layer_scaling_fwd_kernel(
 
   if (t_id == 0) {
     // compute sample std dev
-    mom2sq = s_mem[0] / K;
-    mom2 = sqrt(mom2sq + eps);
-
+    mom2 = sqrt(s_mem[0] / K + eps);
     scale[n] = (T)mom2;
-
   }
   __syncthreads();
 
   // compute output
   for (idx = t_id; idx < K; idx += k) {
-    out[Idx2(n, idx, N, K)] = (float)input[Idx2(n, idx, N, K)] / mom2;
+    idx2 = Idx2(n, idx, N, K);
+    out[idx2] = (T)((float)input[idx2] / scale[n]);
   }
+  __syncthreads();
 }
 
 std::vector<at::Tensor> layer_scaling_fwd_cuda(
@@ -402,8 +401,8 @@ std::vector<at::Tensor> layer_scaling_fwd_cuda(
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(input.scalar_type(), "layer_scaling_fwd", ([&] {
     layer_scaling_fwd_kernel<scalar_t><<<blocks, threads, threads * sizeof(float)>>>(
         input.data<scalar_t>(),
-        scale.data<scalar_t>(),
         out.data<scalar_t>(),
+        scale.data<scalar_t>(),
         N, K, eps);
   }));
   THCudaCheck(cudaGetLastError());
@@ -423,7 +422,7 @@ __global__ void layer_scaling_bwd_kernel(
   const unsigned int t_id = threadIdx.x;
   const unsigned int n = blockIdx.x;
   const unsigned int k = blockDim.x;
-  unsigned int idx;
+  unsigned int idx, idx2;
 
   extern __shared__ float s_mem[];
   s_mem[t_id] = 0;                                // reset shared mem
@@ -431,7 +430,8 @@ __global__ void layer_scaling_bwd_kernel(
   __syncthreads();
 
   for (idx = t_id; idx < K; idx += k) {
-    s_mem[t_id] += (float)grad_out[Idx2(n, idx, N, K)] * (float)out[Idx2(n, idx, N, K)];  // start reductions
+    idx2 = Idx2(n, idx, N, K);
+    s_mem[t_id] += (float)grad_out[idx2] * (float)out[idx2];  // start reductions
   }
   __syncthreads();
 
@@ -452,9 +452,16 @@ __global__ void layer_scaling_bwd_kernel(
   }
   __syncthreads();
 
+  if (t_id == 0) {
+    // compute sample std dev
+    s_mem[0] = s_mem[0] / K;
+  }
+  __syncthreads();
+
   // compute output
   for (idx = t_id; idx < K; idx += k) {
-    grad_in[Idx2(n, idx, N, K)] = ((float)grad_out[Idx2(n, idx, N, K)] - s_mem[0] * (float)out[Idx2(n, idx, N, K)]) / scale[n];
+    idx2 = Idx2(n, idx, N, K);
+    grad_in[idx2] = (T)(((float)grad_out[idx2] - s_mem[0] * (float)out[idx2]) / scale[n]);
   }
   __syncthreads();
 }
